@@ -1,0 +1,13 @@
+[settings]
+experimental = true
+
+[tools]
+node = "26.12.0"
+
+[deps.npm]
+
+[tasks.test]
+run = "npm test"
+
+[tasks.check]
+run = "npm run check"
