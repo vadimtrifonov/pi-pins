@@ -24,15 +24,15 @@ Click a pin on the shelf to open the panel with that pin selected.
 
 ## How it works
 
-- Pins are saved in the session as entries on its conversation tree.
-  Each branch has its own pins, and going back in `/tree` or forking restores the pins of that point.
+- Each session shows the pinned messages it contains, on any branch.
+  Forks contain their parent's messages, so they share those pins, and open sessions update as soon as a pin changes.
 - Pinning a fourth message asks which pin to replace.
-- **All** combines the current session's pins with pins from saved sessions, oldest message first.
+- **All** lists pins oldest first, each with the session where its message was written.
+- Pins are saved in `~/.pi/agent/pins/pins.json` with a copy of each message's text.
 - Pinning does not keep a message in the model's context.
 
 ## Limitations
 
-- Pins from other sessions are read-only; to unpin one, open its session.
 - Search checks message beginnings, not full bodies or command output.
 - Clicking the shelf works only in Pi fullscreen mode.
 

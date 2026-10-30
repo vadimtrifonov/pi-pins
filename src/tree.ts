@@ -1,30 +1,16 @@
-import { stripVTControlCharacters } from "node:util";
 import { TreeSelectorComponent, type SessionMessageEntry, type SessionTreeNode } from "@earendil-works/pi-coding-agent";
 import type { PinItem } from "./browser.ts";
 import type { PinSource } from "./state.ts";
-import { sanitizeTerminalText } from "./terminal-text.ts";
+import { oneLine } from "./panel.ts";
 
 export type FilterMode = NonNullable<ConstructorParameters<typeof TreeSelectorComponent>[7]>;
 export const filterModes: FilterMode[] = ["default", "no-tools", "user-only", "labeled-only", "all"];
 
-// Match the native text-block concatenation and 200-code-unit search/display bound.
-// Do not copy or sanitize thinking, images, tool arguments, or other unused payloads.
-function contentText(content: unknown): string {
-  const text = typeof content === "string" ? content : Array.isArray(content)
-    ? content.filter(block => block.type === "text").map(block => block.text).join("") : "";
-  return sanitizeTerminalText(text).slice(0, 200);
-}
-function displayEntry(entry: SessionMessageEntry): SessionMessageEntry {
-  const message = entry.message;
-  if (message.role === "bashExecution") return { ...entry, message: { ...message, command: sanitizeTerminalText(message.command), output: "" } };
-  if (message.role === "user" || message.role === "assistant") return { ...entry, message: { ...message, content: [{ type: "text", text: contentText(message.content) }],
-    ...(message.role === "assistant" ? { errorMessage: message.errorMessage && sanitizeTerminalText(message.errorMessage) } : {}),
-  } as typeof message };
-  return { ...entry };
-}
+// Rows form one chain: each gets a copy of its entry, keyed by message identity and linked to the row above,
+// so the session's own entries stay unchanged.
 export function treeNodes(items: readonly PinItem[]): SessionTreeNode[] {
   const nodes = items.map((item, i): SessionTreeNode => {
-    const entry = displayEntry(item.source.entry);
+    const entry = { ...item.source.entry };
     entry.id = item.key; entry.parentId = items[i - 1]?.key ?? null;
     return { entry, children: [], label: item.pinned ? "pinned" : undefined };
   });
@@ -53,15 +39,15 @@ function nativeState(list: ReturnType<TreeSelectorComponent["getTreeList"]>): Tr
 }
 
 export function pinLabel(source: PinSource, showRole = true): string {
-  const node: SessionTreeNode = { entry: displayEntry(source.entry), children: [] };
+  const node: SessionTreeNode = { entry: source.entry, children: [] };
   const list = new TreeSelectorComponent([node], null, 1, () => {}, () => {}, undefined, undefined, "all").getTreeList();
-  const label = stripVTControlCharacters(nativeState(list).getEntryDisplayText(node, false));
+  const label = oneLine(nativeState(list).getEntryDisplayText(node, false));
   return showRole ? label : label.replace(/^(?:assistant|user): /, "");
 }
 
 export function createTree(items: readonly PinItem[], filter: FilterMode, query: string, initial?: string) {
   const nodes = treeNodes(items);
-  // No empty selector: its constructor schedules an unwanted auto-cancel.
+  // An empty selector schedules an auto-cancel in its constructor, so an empty list gets none.
   const list = nodes.length ? new TreeSelectorComponent(nodes.slice(0, 1), null, 20,
     () => {}, () => {}, undefined, initial, filter).getTreeList() : undefined;
   const state = list ? nativeState(list) : undefined;

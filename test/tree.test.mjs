@@ -4,7 +4,7 @@ import {stripVTControlCharacters as clean} from 'node:util';
 import {initTheme,TreeSelectorComponent} from '@earendil-works/pi-coding-agent';
 import {getKeybindings} from '@earendil-works/pi-tui';
 import {createTree,treeNodes,pinLabel} from '../src/tree.ts';
-import {createBrowser,readingMemory,pinItems,pinKey} from '../src/browser.ts';
+import {createBrowser,readingMemory,pinItems} from '../src/browser.ts';
 import {sourcesOnBranch} from '../src/state.ts';
 import {nativeFixture} from './native-fixtures.mjs';
 initTheme('dark',false);const keys=getKeybindings(),theme={fg:(_,s)=>s,bg:(_,s)=>s,bold:s=>s};
@@ -14,7 +14,7 @@ function large(){
   {type:'image',get data(){throw Error('Do not inspect image data for the message row');}},
   {type:'text',text:`Row ${i} early text `+'reference '.repeat(250)+' LATE_TOKEN'},
  ],stopReason:'stop'}}));
- return {id:'large',current:true,pins:sourcesOnBranch(entries)};
+ return {id:'large',pins:sourcesOnBranch(entries)};
 }
 test('2400-row native viewport and paging remain bounded at 1/2/10/40 rows, with exact counters and no wrap',()=>{
  const group=large(),items=pinItems(group,group.pins);
@@ -27,7 +27,7 @@ test('2400-row native viewport and paging remain bounded at 1/2/10/40 rows, with
   tree.move(1);assert.match(clean(tree.render(75,capacity).at(-1)),/\(2400\/2400\)/);
  }
  const source=group.pins[0];const display=treeNodes(pinItems(group,[source]))[0].entry;
- assert.equal(display.message.content.length,1);assert.equal(display.message.content[0].text.length,200);
+ assert.equal(display.message,source.entry.message);
  assert(source.text.includes('LATE_TOKEN'));assert(!createTree(items,'default','LATE_TOKEN').selected());
 });
 test('incompatible TreeList internals fail explicitly before applying the query',()=>{
@@ -47,7 +47,7 @@ test('browser left/right page by visible choices, even with Up/Down unbound; PgU
   keys.setUserBindings({...original,'tui.select.up':[],'tui.select.down':[]});
   const group=large(),messages=group.pins.slice(0,2000),memory=readingMemory();
   const tui={terminal:{columns:40,rows:18},requestRender(){}};
-  const c=createBrowser({tui,theme,keys,groups:[{...group,pins:messages.slice(0,3)}],messages,memory,scope:'current',initial:pinKey(group.id,'e1999'),signal:new AbortController().signal,done(){}});
+  const c=createBrowser({tui,theme,keys,view:{session:{...group,pins:messages.slice(0,3)},messages,all:[]},memory,scope:'current',initial:'e1999@2026-10-21T00:00:00Z',signal:new AbortController().signal,done(){}});
   c.focused=true;
   const render=()=>c.render(40).map(clean),counter=()=>render().find(line=>/\(\d+\/2000\)/.test(line));
   const capacity=render().filter(line=>line.startsWith('› ')||line.startsWith('  assistant:')).length;

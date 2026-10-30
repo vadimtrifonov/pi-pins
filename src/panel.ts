@@ -1,5 +1,6 @@
 import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type OverlayOptions } from "@earendil-works/pi-tui";
+import { stripVTControlCharacters } from "node:util";
 
 // Preserves Pi's standard two-line footer in fullscreen mode only.
 // Regular mode can place the footer above the terminal bottom; custom/status footers also differ.
@@ -9,6 +10,8 @@ export const panelOverlay: OverlayOptions = {
 };
 export const panelRule = (theme: Theme, width: number) =>
   new DynamicBorder(text => theme.fg("border", text)).render(width)[0];
+// Keeps Pins' own one-line text (labels, captions, notices) on its row: control characters would break or restyle it.
+export const oneLine = (text: string) => stripVTControlCharacters(text).replace(/[\x00-\x1f\x7f]/g, " ");
 export const panelLine = (text: string, width: number) =>
   " " + truncateToWidth(text, Math.max(1, width - 2), "", true) + " ";
 

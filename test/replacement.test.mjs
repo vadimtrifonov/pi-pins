@@ -3,15 +3,15 @@ import {test} from 'node:test';
 import {stripVTControlCharacters as clean} from 'node:util';
 import {initTheme} from '@earendil-works/pi-coding-agent';
 import {getKeybindings,truncateToWidth,visibleWidth} from '@earendil-works/pi-tui';
-import {createBrowser,readingMemory,pinKey} from '../src/browser.ts';
-import {sourceFromEntry} from '../src/state.ts';
+import {createBrowser,readingMemory} from '../src/browser.ts';
+import {identity,sourceFromEntry} from '../src/state.ts';
 import {pinLabel} from '../src/tree.ts';
 import {nativeFixture} from './native-fixtures.mjs';
 const themes=await import(new URL('./modes/interactive/theme/theme.js',import.meta.resolve('@earendil-works/pi-coding-agent')));
 const incoming=sourceFromEntry({id:'incoming',parentId:null,timestamp:'2026-10-21T13:00:00Z',type:'message',message:{role:'assistant',content:[{type:'text',text:'## Incoming answer — a deliberately long identifying snippet that must remain on a single line even at forty columns\n\nOriginal full answer.'}],stopReason:'stop'}});
 function setup(){
  const f=nativeFixture(),tui={terminal:{columns:75,rows:32},requestRender(){}},controller=new AbortController();let result,closed=false;
- const c=createBrowser({tui,theme:themes.theme,keys:getKeybindings(),groups:[f.group],memory:readingMemory(),signal:controller.signal,scope:'current',replacementFor:incoming,initial:pinKey(f.group.id,f.group.pins[0].id),done:action=>{result=action;closed=true;}});
+ const c=createBrowser({tui,theme:themes.theme,keys:getKeybindings(),view:{session:f.group,messages:f.group.pins,all:[]},memory:readingMemory(),signal:controller.signal,scope:'current',replacementFor:incoming,initial:identity(f.group.pins[0].entry),done:action=>{result=action;closed=true;}});
  c.focused=true;
  const lines=()=>c.render(tui.terminal.columns),plain=()=>lines().map(clean),key=data=>{c.handleInput(data);return plain();};
  return {c,tui,f,controller,lines,plain,key,result:()=>result,closed:()=>closed};

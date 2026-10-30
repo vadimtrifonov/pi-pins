@@ -1,86 +1,129 @@
-import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
-import { PIN_STATE, LIMIT, addPin, sourceFromEntry, sourcesOnBranch, pinnedSources, pinsOnBranch, snapshot, type PinGroup } from "./state.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { LIMIT, addPin, identity, originGroups, pinnedCopy, removePin, renameOrigin, sessionSources, type Origin, type Pin, type PinSource } from "./state.ts";
+import { pinStore, type PinStore } from "./store.ts";
+import { findOrigin } from "./sessions.ts";
 import { createShelf, type ShelfPin } from "./widget.ts";
 import { pinLabel } from "./tree.ts";
-import { browsePins, chooseReplacement, pinKey, readingMemory } from "./browser.ts";
+import { browsePins, chooseReplacement, readingMemory, type PinItem, type PinView } from "./browser.ts";
 
-export function registerPins(pi: ExtensionAPI, listSaved?: (ctx: ExtensionContext, signal: AbortSignal) => Promise<PinGroup[]>) {
+export function registerPins(pi: ExtensionAPI, store: PinStore = pinStore) {
+  let pins: Pin[] = [];
+  // Numbers each read and save, so a slow read cannot replace newer pins.
+  let sequence = 0;
+  let running = false;
+  let stopWatching: (() => void) | undefined;
   let updateShelf: ((pins: ShelfPin[]) => void) | undefined;
   let active: AbortController | undefined;
-  let memory = readingMemory();
+  const memory = readingMemory();
 
-  const current = (ctx: ExtensionContext, branch: readonly SessionEntry[] = ctx.sessionManager.getBranch()): PinGroup =>
-    ({ id: ctx.sessionManager.getSessionId(), name: pi.getSessionName(), current: true, pins: pinnedSources(branch) });
+  function view(ctx: ExtensionContext): PinView {
+    const manager = ctx.sessionManager, pinned = new Set(pins.map(pin => identity(pin.entry)));
+    const messages = sessionSources(manager.getEntries(), manager.getBranch(), pinned);
+    return {
+      session: { id: manager.getSessionId(), name: pi.getSessionName(), pins: messages.filter(source => pinned.has(identity(source.entry))) },
+      messages, all: originGroups(pins),
+    };
+  }
 
   function refresh(ctx: ExtensionContext) {
-    if (ctx.mode !== "tui") return;
-    let pins: ShelfPin[];
-    try { pins = current(ctx).pins.map(pin => ({ id: pin.id, label: pinLabel(pin, false) })); }
+    // After shutdown, ctx throws on access.
+    if (!running || ctx.mode !== "tui") return;
+    let shelf: ShelfPin[];
+    try { shelf = view(ctx).session.pins.map(pin => ({ id: identity(pin.entry), label: pinLabel(pin, false) })); }
     catch (error) {
       ctx.ui.setWidget("pins:shelf", undefined);
       updateShelf = undefined;
       ctx.ui.notify(String(error), "error");
       return;
     }
-    if (!pins.length) {
+    if (!shelf.length) {
       ctx.ui.setWidget("pins:shelf", undefined);
       updateShelf = undefined;
       return;
     }
-    if (updateShelf) { updateShelf(pins); return; }
+    if (updateShelf) { updateShelf(shelf); return; }
     ctx.ui.setWidget("pins:shelf", (tui, theme) => {
-      updateShelf = updated => { pins = updated; tui.requestRender(); };
-      return createShelf(theme, () => pins, id => {
-        void runUI(ctx, signal => browse(ctx, signal, id));
+      updateShelf = updated => { shelf = updated; tui.requestRender(); };
+      return createShelf(theme, () => shelf, key => {
+        void runUI(ctx, signal => browse(ctx, signal, key));
       });
     }, { placement: "aboveEditor" });
   }
-  function reset() {
-    active?.abort();
-    active = undefined;
+
+  /** Reads the pins file; an invalid file clears the shelf and throws. */
+  async function load(ctx: ExtensionContext): Promise<Pin[]> {
+    const mine = ++sequence;
+    try {
+      const read = await store.read();
+      if (mine === sequence) { pins = read; refresh(ctx); }
+      return read;
+    } catch (error) {
+      if (mine === sequence) { pins = []; refresh(ctx); }
+      throw error;
+    }
   }
+  function reload(ctx: ExtensionContext) {
+    const mine = sequence + 1;
+    return load(ctx).then(() => {}, error => { if (running && mine === sequence) ctx.ui.notify(String(error), "error"); });
+  }
+  // A save finishes even if the session ends meanwhile: pins belong to messages, which outlive a session.
+  async function save(ctx: ExtensionContext, change: (pins: Pin[]) => Pin[]) {
+    const saved = await store.update(change);
+    ++sequence;
+    pins = saved;
+    refresh(ctx);
+  }
+
   async function runUI(ctx: ExtensionContext, action: (signal: AbortSignal) => Promise<void>) {
     if (ctx.mode !== "tui" || active) return;
     const controller = new AbortController();
     active = controller;
     try { await action(controller.signal); }
-    catch (error) { if (!controller.signal.aborted) ctx.ui.notify(String(error), "error"); }
+    catch (error) { if (running) ctx.ui.notify(String(error), "error"); }
     finally { if (active === controller) active = undefined; }
   }
-  function commit(ctx: ExtensionContext, ids: string[]) {
-    pi.appendEntry(PIN_STATE, snapshot(ids));
-    refresh(ctx);
-  }
-  async function pin(ctx: ExtensionContext, signal: AbortSignal, id: string) {
-    if (signal.aborted) return;
-    const branch = ctx.sessionManager.getBranch(), ids = pinsOnBranch(branch);
-    const entry = branch.find(e => e.id === id), incoming = entry && sourceFromEntry(entry);
-    if (ids.includes(id) || !incoming) return;
-    let replace: string | undefined;
-    if (ids.length >= LIMIT) {
-      replace = await chooseReplacement(ctx, current(ctx, branch), incoming, signal);
-      if (!replace || signal.aborted) return;
+
+  /** Pins a message unless it is already pinned. A session holding LIMIT pinned messages asks which one to replace. */
+  async function pin(ctx: ExtensionContext, signal: AbortSignal, source: PinSource, origin?: Origin) {
+    // Capture session data before waiting: once the session ends, ctx can no longer be used.
+    const manager = ctx.sessionManager, header = manager.getHeader(), name = pi.getSessionName();
+    const id = manager.getSessionId(), entries = manager.getEntries(), branch = manager.getBranch();
+    const key = identity(source.entry), current = await load(ctx);
+    const pinned = new Set(current.map(pin => identity(pin.entry)));
+    if (pinned.has(key)) return;
+    let replacing: string | undefined;
+    if (entries.some(entry => entry.type === "message" && identity(entry) === key)) {
+      const shelf = sessionSources(entries, branch, pinned).filter(pin => pinned.has(identity(pin.entry)));
+      if (shelf.length >= LIMIT) {
+        if (signal.aborted) return;
+        const choice = await chooseReplacement(ctx, { id, name, pins: shelf }, source, signal);
+        const outgoing = shelf.find(pin => pin.id === choice);
+        if (!outgoing) return;
+        replacing = identity(outgoing.entry);
+      }
     }
-    commit(ctx, addPin(ids, id, replace));
-    memory.selected.set("current", pinKey(ctx.sessionManager.getSessionId(), id));
+    origin ??= header ? await findOrigin(header, name, source.entry.timestamp) : { id, name };
+    await save(ctx, latest => addPin(latest, { entry: pinnedCopy(source.entry), origin }, replacing));
   }
+  async function toggle(ctx: ExtensionContext, signal: AbortSignal, item: PinItem) {
+    // The row's mark decides the action, so p does what the row shows even if another Pi changed that pin meanwhile.
+    if (item.pinned) await save(ctx, current => removePin(current, item.key));
+    // An All row from another session already knows where its message was written.
+    else await pin(ctx, signal, item.source, item.group.id === ctx.sessionManager.getSessionId() ? undefined : { id: item.group.id, name: item.group.name });
+  }
+
   // The shelf opens its pin among pins only; /pins opens the latest answer among all messages.
-  async function browse(ctx: ExtensionContext, signal: AbortSignal, pinId?: string) {
+  async function browse(ctx: ExtensionContext, signal: AbortSignal, key?: string) {
+    await load(ctx);
+    if (signal.aborted) return;
     memory.localQuery = "";
-    const branch = ctx.sessionManager.getBranch(), group = current(ctx, branch), messages = sourcesOnBranch(branch);
-    const latest = messages.findLast(({ entry }) => entry.message.role === "assistant") ?? messages.at(-1);
-    const initial = pinId ?? latest?.id;
+    const current = view(ctx);
+    const latest = current.messages.findLast(({ entry }) => entry.message.role === "assistant") ?? current.messages.at(-1);
     const action = await browsePins(ctx, {
-      groups: [group], memory, signal, initial: initial && pinKey(group.id, initial),
-      loadSaved: listSaved && (signal => listSaved(ctx, signal)),
-      messages, pinnedOnly: pinId !== undefined,
+      view: current, memory, signal, initial: key ?? (latest && identity(latest.entry)), pinnedOnly: key !== undefined,
       async togglePin(item) {
-        // Only the owning session can append branch-relative pin state.
-        if (signal.aborted || !item.group.current) return current(ctx);
-        const ids = pinsOnBranch(ctx.sessionManager.getBranch());
-        if (ids.includes(item.source.id)) commit(ctx, ids.filter(id => id !== item.source.id));
-        else await pin(ctx, signal, item.source.id);
-        return current(ctx);
+        await toggle(ctx, signal, item);
+        return running && !signal.aborted ? view(ctx) : undefined;
       },
     });
     if (!action || signal.aborted) return;
@@ -91,7 +134,26 @@ export function registerPins(pi: ExtensionAPI, listSaved?: (ctx: ExtensionContex
     handler: (_args, ctx) => runUI(ctx, signal => browse(ctx, signal)),
   });
 
-  pi.on("session_start", (_event, ctx) => { reset(); updateShelf = undefined; memory = readingMemory(); refresh(ctx); });
-  pi.on("session_tree", (_event, ctx) => { reset(); refresh(ctx); });
-  pi.on("session_shutdown", () => { reset(); updateShelf = undefined; });
+  pi.on("session_start", (_event, ctx) => {
+    if (ctx.mode !== "tui") return;
+    running = true;
+    try { stopWatching = store.watch(() => void reload(ctx)); }
+    catch (error) { ctx.ui.notify(`Pins from other Pi sessions will not update live: ${String(error)}`, "warning"); }
+    // Pi waits for this, so the shelf is in place when the session starts.
+    return reload(ctx);
+  });
+  pi.on("session_info_changed", (event, ctx) => {
+    if (!running) return;
+    const id = ctx.sessionManager.getSessionId();
+    save(ctx, current => renameOrigin(current, id, event.name)).catch(error => { if (running) ctx.ui.notify(String(error), "error"); });
+  });
+  pi.on("session_shutdown", () => {
+    active?.abort();
+    active = undefined;
+    running = false;
+    ++sequence;
+    stopWatching?.();
+    stopWatching = undefined;
+    updateShelf = undefined;
+  });
 }

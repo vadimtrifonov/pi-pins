@@ -1,11 +1,16 @@
 import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
 
-// Keep this identifier stable to read existing pin snapshots.
-export const PIN_STATE = "pins-review-state";
 export const LIMIT = 3;
-// Original entries are read-only UI provenance, never included in persisted snapshots.
 export interface PinSource { id: string; text: string; entry: SessionMessageEntry }
-export interface PinGroup { id: string; name?: string; pins: PinSource[]; current: boolean }
+/** Messages listed under one session: the current session in Session, or the session where pins were written in All. */
+export interface PinGroup { id: string; name?: string; pins: PinSource[] }
+/** The session where a pinned message was written, as recorded when it was pinned. */
+export interface Origin { id: string; name?: string }
+/** A pinned message, copied so that it outlives its sessions. */
+export interface Pin { entry: SessionMessageEntry; origin: Origin }
+
+/** Forks copy entries with their IDs and timestamps, so together they identify a message in every session that contains it. */
+export const identity = (entry: { id: string; timestamp: string }) => `${entry.id}@${entry.timestamp}`;
 
 /** Pinnable entries are user messages, assistant answers, and user-run shell commands. */
 export function sourceFromEntry(entry: SessionEntry): PinSource | undefined {
@@ -24,29 +29,57 @@ export function sourcesOnBranch(branch: readonly SessionEntry[]): PinSource[] {
   return branch.flatMap(entry => { const source = sourceFromEntry(entry); return source ? [source] : []; });
 }
 
+/** The saved copy keeps the entry with only the text blocks that Pins reads; images and thinking stay in the session. */
+export function pinnedCopy(entry: SessionMessageEntry): SessionMessageEntry {
+  const message = entry.message;
+  if ((message.role !== "user" && message.role !== "assistant") || typeof message.content === "string") return entry;
+  return { ...entry, message: { ...message, content: message.content.filter(block => block.type === "text") } as typeof message };
+}
+
+const time = (source: PinSource) => Date.parse(source.entry.timestamp) || 0;
+
 /**
- * Sources of the latest pin snapshot in branch order, skipping pins whose entries are not on the branch.
- * The order of ids within a snapshot carries no meaning.
+ * Session rows: the current branch in order, with this session's pinned messages from other branches placed by time.
+ * The shelf shows the pinned rows in the same order.
  */
-export function pinnedSources(branch: readonly SessionEntry[]): PinSource[] {
-  const entry = branch.findLast(e => e.type === "custom" && e.customType === PIN_STATE);
-  if (!entry || entry.type !== "custom") return [];
-  const data = entry.data as { version?: number; ids?: unknown } | undefined;
-  if (data?.version !== 1 || !Array.isArray(data.ids) ||
-      !data.ids.every(id => typeof id === "string") || new Set(data.ids).size !== data.ids.length) {
-    throw new Error(`Invalid pin snapshot ${entry.id}`);
+export function sessionSources(entries: readonly SessionEntry[], branch: readonly SessionEntry[], pinned: ReadonlySet<string>): PinSource[] {
+  const onBranch = new Set(branch.map(entry => entry.id));
+  const elsewhere = sourcesOnBranch(entries.filter(entry => entry.type === "message" && !onBranch.has(entry.id) && pinned.has(identity(entry))))
+    .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  // Stable: branch order survives equal timestamps.
+  return [...sourcesOnBranch(branch), ...elsewhere].sort((a, b) => time(a) - time(b));
+}
+
+/** All: every pin, grouped by the session where its message was written. */
+export function originGroups(pins: readonly Pin[]): PinGroup[] {
+  const groups = new Map<string, PinGroup>();
+  for (const pin of pins) {
+    const source = sourceFromEntry(pin.entry);
+    if (!source) continue;
+    let group = groups.get(pin.origin.id);
+    if (!group) groups.set(pin.origin.id, group = { id: pin.origin.id, pins: [] });
+    group.name = pin.origin.name ?? group.name;
+    group.pins.push(source);
   }
-  const ids = new Set(data.ids);
-  return sourcesOnBranch(branch.filter(e => ids.has(e.id)));
+  return [...groups.values()];
 }
 
-export const pinsOnBranch = (branch: readonly SessionEntry[]): string[] => pinnedSources(branch).map(source => source.id);
+// A change that alters nothing returns its input, and the store then skips the write.
 
-export function addPin(ids: readonly string[], id: string, replacement?: string): string[] {
-  if (ids.includes(id)) return [...ids];
-  if (ids.length < LIMIT) return [...ids, id];
-  if (!replacement || !ids.includes(replacement)) throw new Error("Choose a pin to replace");
-  return ids.map(existing => existing === replacement ? id : existing);
+/** Adds a pin unless its message is already pinned, optionally unpinning the message it replaces. */
+export function addPin(pins: Pin[], pin: Pin, replacing?: string): Pin[] {
+  const key = identity(pin.entry);
+  if (pins.some(existing => identity(existing.entry) === key)) return pins;
+  return [...replacing ? pins.filter(existing => identity(existing.entry) !== replacing) : pins, pin];
 }
 
-export const snapshot = (ids: readonly string[]) => ({ version: 1, ids: [...ids] });
+export function removePin(pins: Pin[], key: string): Pin[] {
+  const kept = pins.filter(pin => identity(pin.entry) !== key);
+  return kept.length === pins.length ? pins : kept;
+}
+
+/** Records a session's new name on the pins written in it. */
+export function renameOrigin(pins: Pin[], id: string, name: string | undefined): Pin[] {
+  if (!pins.some(pin => pin.origin.id === id && pin.origin.name !== name)) return pins;
+  return pins.map(pin => pin.origin.id === id ? { ...pin, origin: name === undefined ? { id } : { id, name } } : pin);
+}
