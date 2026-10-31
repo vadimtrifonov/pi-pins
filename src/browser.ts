@@ -161,7 +161,7 @@ export function createBrowser(options: BrowserOptions) {
           "↑/↓ move", "PgUp/PgDn scroll", "Enter read", ...(tab ? [`${tab} scope`] : []), "Esc close",
         ];
       const feedback = !editing && (notice || item && copiedKey === item.key)
-        ? [line(theme.fg("muted", truncateToWidth(notice || `Copied: ${pinLabel(item!.source)}`, inner, "…")))] : [];
+        ? [line(theme.fg(notice ? "error" : "muted", truncateToWidth(notice || `Copied: ${pinLabel(item!.source)}`, inner, "…")))] : [];
       const before = [...header.map(line), ...hintRows(theme, hints, inner).map(line), ...feedback, rule];
       const caption = item && scope === "all" ? sourceCaption(theme, item.group, inner).map(line) : [];
       const minimum = reader ? 3 : 2 + (item ? 3 : 0);
