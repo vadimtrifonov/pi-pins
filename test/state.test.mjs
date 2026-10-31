@@ -52,11 +52,14 @@ test('pin changes return their input when nothing changes, and an already pinned
  assert.deepEqual(renameOrigin(pins,'session','Name').map(pin=>pin.origin),[{id:'session',name:'Name'},{id:'session',name:'Name'}]);
 });
 
-test('a pinned copy keeps text blocks and leaves images and thinking in the session',()=>{
+test('a pinned copy keeps text blocks and the fields Pi requires, leaving images, thinking and provider metadata in the session',()=>{
  const entry=message=>({type:'message',id:'m',parentId:null,timestamp:'2026-10-21T00:00:00Z',message});
- const full=entry({role:'assistant',content:[{type:'thinking',thinking:'Hidden'},{type:'text',text:'Kept'},{type:'image',data:'aGVsbG8=',mimeType:'image/png'}],stopReason:'stop'});
- assert.deepEqual(pinnedCopy(full).message,{role:'assistant',content:[{type:'text',text:'Kept'}],stopReason:'stop'});
+ const required={api:'fixture',provider:'fixture',model:'fixture',usage,stopReason:'error',errorMessage:'Overloaded',timestamp:1};
+ const full=entry({role:'assistant',content:[{type:'thinking',thinking:'Hidden'},{type:'text',text:'Kept'},{type:'toolCall',id:'t',name:'read',arguments:{}}],...required,diagnostics:[{type:'note'}],responseId:'r',durationMs:5});
+ assert.deepEqual(JSON.parse(JSON.stringify(pinnedCopy(full).message)),{role:'assistant',content:[{type:'text',text:'Kept'}],...required});
  assert.equal(full.message.content.length,3);
+ const picture=entry({role:'user',content:[{type:'text',text:'See'},{type:'image',data:'aGVsbG8=',mimeType:'image/png'}],timestamp:1});
+ assert.deepEqual(pinnedCopy(picture).message,{role:'user',content:[{type:'text',text:'See'}],timestamp:1});
  for(const unchanged of [entry({role:'user',content:'Plain'}),entry({role:'bashExecution',command:'ls',output:'a',exitCode:0,cancelled:false,truncated:false})])
   assert.equal(pinnedCopy(unchanged),unchanged);
 });

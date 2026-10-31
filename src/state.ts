@@ -29,11 +29,19 @@ export function sourcesOnBranch(branch: readonly SessionEntry[]): PinSource[] {
   return branch.flatMap(entry => { const source = sourceFromEntry(entry); return source ? [source] : []; });
 }
 
-/** The saved copy keeps the entry with only the text blocks that Pins reads; images and thinking stay in the session. */
+/**
+ * The saved copy keeps text blocks only; images and thinking stay in the session.
+ * Answers keep the fields Pi requires plus the error, without provider metadata such as diagnostics.
+ */
 export function pinnedCopy(entry: SessionMessageEntry): SessionMessageEntry {
   const message = entry.message;
-  if ((message.role !== "user" && message.role !== "assistant") || typeof message.content === "string") return entry;
-  return { ...entry, message: { ...message, content: message.content.filter(block => block.type === "text") } as typeof message };
+  if (message.role === "assistant") {
+    const { api, provider, model, usage, stopReason, errorMessage, timestamp } = message;
+    const content = message.content.filter(block => block.type === "text");
+    return { ...entry, message: { role: "assistant", content, api, provider, model, usage, stopReason, errorMessage, timestamp } };
+  }
+  if (message.role !== "user" || typeof message.content === "string") return entry;
+  return { ...entry, message: { ...message, content: message.content.filter(block => block.type === "text") } };
 }
 
 const time = (source: PinSource) => Date.parse(source.entry.timestamp) || 0;
