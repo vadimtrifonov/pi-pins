@@ -178,7 +178,9 @@ export function createBrowser(options: BrowserOptions) {
       }
       let choices: string[] = [];
       if (!reader) {
-        const preview = item ? Math.min(5, available - (available >= 6 ? 3 : 2)) : 0;
+        // The preview keeps a quarter of the room, but no fewer than 5 lines
+        // unless the list would lose its last row; a short list leaves it more.
+        const preview = item ? Math.max(Math.floor(available / 4), Math.min(5, available - (available >= 6 ? 3 : 2))) : 0;
         choices = tree.render(width, Math.max(1, available - preview - 1));
         if (!choices.length) choices = [line(theme.fg("muted", scope === "all" ? "No pins." : "No messages to pin yet.")), line(theme.fg("muted", "(0/0)"))];
       }
