@@ -42,7 +42,7 @@ interface BrowserOptions {
 }
 const filters: Partial<Record<Keybinding, FilterMode>> = {
   "app.tree.filter.default": "default", "app.tree.filter.noTools": "no-tools", "app.tree.filter.userOnly": "user-only",
-  "app.tree.filter.labeledOnly": "labeled-only", "app.tree.filter.all": "all",
+  "app.tree.filter.all": "all",
 };
 const filterActions: Keybinding[] = [...Object.keys(filters) as Keybinding[], "app.tree.filter.cycleBackward", "app.tree.filter.cycleForward"];
 
@@ -149,8 +149,7 @@ export function createBrowser(options: BrowserOptions) {
       if (showQuery) header.push(...editing ? input.render(inner) : [theme.fg("muted", truncateToWidth(`Search: ${query()} · / edit`, inner, "…"))]);
       const tab = keys.getKeys("tui.input.tab").map(key => key === "tab" ? "Tab" : key).join("/");
       const pinsFiltered = filter === "labeled-only";
-      const filterKey = keys.getKeys("app.tree.filter.labeledOnly").map(key => key === "ctrl+l" ? "Ctrl+L" : key).join("/");
-      const pinFilter = filterKey ? `${filterKey} ${pinsFiltered ? "all" : "pins"}` : "";
+      const pinFilter = `Ctrl+P ${pinsFiltered ? "all" : "pins"}`;
       // Style the complete hint row once; an inner foreground reset would leave
       // the following hints in the terminal's default color.
       const actions = [pinAction, "c copy", "i insert"];
@@ -158,7 +157,7 @@ export function createBrowser(options: BrowserOptions) {
       const hints = replacing ? ["r replace", ...(reader ? readerHints : ["↑/↓ move", "PgUp/PgDn scroll", "Enter read"]), reader ? "Esc back" : "Esc cancel"]
         : editing ? ["↑/↓ move", "PgUp/PgDn scroll", "Enter read", ...(tab ? [`${tab} scope`] : []), "Esc finish search"]
         : reader ? [...actions, ...readerHints, "Esc back"] : [
-          ...actions, ...(scope === "current" && pinFilter ? [pinFilter] : []), ...(!showQuery ? ["/ search"] : []),
+          ...actions, ...(scope === "current" ? [pinFilter] : []), ...(!showQuery ? ["/ search"] : []),
           "↑/↓ move", "PgUp/PgDn scroll", "Enter read", ...(tab ? [`${tab} scope`] : []), "Esc close",
         ];
       const feedback = !editing && (notice || item && copiedKey === item.key)
@@ -231,7 +230,9 @@ export function createBrowser(options: BrowserOptions) {
           rebuild();
         }
       } else if (!replacing && !reader && data === "/") { editing = true; input.focused = focused; }
-      else if (!replacing && !reader && scope === "current" && filterActions.some(action => keys.matches(data, action))) {
+      else if (!replacing && !reader && scope === "current" && matchesKey(data, "ctrl+p")) {
+        filter = filter === "labeled-only" ? "default" : "labeled-only"; rebuild();
+      } else if (!replacing && !reader && scope === "current" && filterActions.some(action => keys.matches(data, action))) {
         changeFilter(filterActions.find(action => keys.matches(data, action))!);
       } else if (!reader && (keys.matches(data, "tui.editor.cursorLeft") || keys.matches(data, "tui.editor.cursorRight"))) {
         tree.move(keys.matches(data, "tui.editor.cursorLeft") ? -1 : 1);

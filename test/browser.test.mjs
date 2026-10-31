@@ -115,7 +115,7 @@ test(`40×18 geometry, counter/selection remain visible, closing lines survive r
 
 test('shortcut hints wrap intact and filtering preserves selection and reading position',()=>{
  const b=browser();Object.assign(b.tui.terminal,{columns:130,rows:32});
- const expected='p pin · c copy · i insert · Ctrl+L pins · / search · ↑/↓ move · PgUp/PgDn scroll · Enter read · Tab scope · Esc close';
+ const expected='p pin · c copy · i insert · Ctrl+P pins · / search · ↑/↓ move · PgUp/PgDn scroll · Enter read · Tab scope · Esc close';
  assert.equal(b.lines()[1].trim(),expected);assert.match(b.lines()[2],/^─+$/);
  for(const columns of [114,75,40]){
   b.tui.terminal.columns=columns;const header=b.lines().slice(1,b.lines().findIndex(line=>/^─+$/.test(line))).map(line=>line.trim()).join(' · ');
@@ -124,15 +124,14 @@ test('shortcut hints wrap intact and filtering preserves selection and reading p
  b.tui.terminal.columns=130;
  b.key('\x15');assert(b.lines().some(line=>/\(8\/8\) \[user\]/.test(line)));
  b.key('\x15');assert(!b.screen().includes('[user]'));
- const before=b.screen();b.key('\x10');assert.equal(b.screen(),before,'Ctrl+P is not a pin-filter alias');
- b.key('\x0c');assert(b.screen().includes('Ctrl+L all'));assert(b.lines().some(line=>/\(\d+\/3\) \[labeled\]/.test(line)));
+ b.key('\x10');assert(b.screen().includes('Ctrl+P all'));assert(b.lines().some(line=>/\(\d+\/3\) \[pinned\]/.test(line)));
  b.search('release gate');const selected=b.memory.selected.get('current');b.key('\x1b[6~');const position=b.lines().at(-1);
- b.key('\x0c');assert(b.screen().includes('Ctrl+L pins'));assert.equal(b.memory.selected.get('current'),selected);assert.equal(b.lines().at(-1),position);
- b.key('\x0c');assert(b.screen().includes('Search: release gate'));assert.equal(b.memory.selected.get('current'),selected);
- b.key('\t');assert(!b.screen().includes('Ctrl+L'));b.key('\x0c');assert(b.lines()[0].includes('◉ All'));b.key('\t');assert(b.screen().includes('Ctrl+L all'));
- b.key('\x0f');assert(b.screen().includes('Ctrl+L pins'));b.key('\x0c');assert(b.screen().includes('Ctrl+L all'));
+ b.key('\x10');assert(b.screen().includes('Ctrl+P pins'));assert.equal(b.memory.selected.get('current'),selected);assert.equal(b.lines().at(-1),position);
+ b.key('\x10');assert(b.screen().includes('Search: release gate'));assert.equal(b.memory.selected.get('current'),selected);
+ b.key('\t');assert(!b.screen().includes('Ctrl+P'));b.key('\x10');assert(b.lines()[0].includes('◉ All'));b.key('\t');assert(b.screen().includes('Ctrl+P all'));
+ b.key('\x0f');assert(b.screen().includes('Ctrl+P pins'));b.key('\x10');assert(b.screen().includes('Ctrl+P all'));
  b.key('/');assert(b.screen().includes('↑/↓ move'));assert(b.screen().includes('PgUp/PgDn scroll'));assert(!b.screen().includes('c copy'));b.key('\x1b');
- b.key('\r');assert(b.screen().includes('↑/↓ previous/next'));assert(b.screen().includes('PgUp/PgDn scroll'));assert(!b.screen().includes('Ctrl+L'));b.c.dispose();
+ b.key('\r');assert(b.screen().includes('↑/↓ previous/next'));assert(b.screen().includes('PgUp/PgDn scroll'));assert(!b.screen().includes('Ctrl+P'));b.c.dispose();
 });
 test('all shortcut text stays muted with the real Pi theme, including wrapped rows and foreign pins',async()=>{
  const themes=await import(new URL('./modes/interactive/theme/theme.js',import.meta.resolve('@earendil-works/pi-coding-agent')));
@@ -140,20 +139,20 @@ test('all shortcut text stays muted with the real Pi theme, including wrapped ro
  for(const columns of [130,40]){
   b.tui.terminal.columns=columns;
   for(const mode of ['messages','pinned','reader','all','search']){
-   if(mode==='pinned')b.key('\x0c');if(mode==='reader')b.key('\r');if(mode==='all'){b.key('\x1b','\t');b.search('import diagnostics');}if(mode==='search')b.key('/');
+   if(mode==='pinned')b.key('\x10');if(mode==='reader')b.key('\r');if(mode==='all'){b.key('\x1b','\t');b.search('import diagnostics');}if(mode==='search')b.key('/');
    const raw=b.c.render(columns),rule=raw.findIndex(line=>/^─+$/.test(clean(line)));
    const first=mode==='search'||mode==='all'?2:1;
    assert(rule>first,`${mode} ${columns}: missing hints`);
    for(const row of raw.slice(first,rule))assert(row.includes(realTheme.fg('muted',clean(row).trim())),`${mode} ${columns}: ${JSON.stringify(row)}`);
   }
-  b.key('\x1b');b.search('');b.key('\t','\x0c');
+  b.key('\x1b');b.search('');b.key('\t','\x10');
  }
  b.c.dispose();
 });
 test('an empty pin subset keeps the way back and selected message',()=>{
  const f=nativeFixture(),b=browser({view:{...f.view,session:{...f.group,pins:[]}}});
- const selected=b.memory.selected.get('current');b.key('\x0c');assert(b.screen().includes('(0/0) [labeled]'));assert(b.screen().includes('Ctrl+L all'));
- b.key('\x0c');assert.equal(b.memory.selected.get('current'),selected);b.c.dispose();
+ const selected=b.memory.selected.get('current');b.key('\x10');assert(b.screen().includes('(0/0) [pinned]'));assert(b.screen().includes('Ctrl+P all'));
+ b.key('\x10');assert.equal(b.memory.selected.get('current'),selected);b.c.dispose();
 });
 test('empty Session stays open and can reach pins of other sessions',()=>{
  const f=nativeFixture(),b=browser({view:{session:{...f.group,pins:[]},messages:[],all:[f.foreign]}});

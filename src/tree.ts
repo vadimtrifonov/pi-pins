@@ -27,12 +27,14 @@ interface TreeListState {
   searchQuery: string;
   applyFilter(): void;
   getEntryDisplayText(node: SessionTreeNode, isSelected: boolean): string;
+  getStatusLabels(): string;
 }
 function nativeState(list: ReturnType<TreeSelectorComponent["getTreeList"]>): TreeListState {
   const state = list as unknown as TreeListState;
   if (!state || !Number.isInteger(state.selectedIndex) || !Array.isArray(state.filteredNodes) ||
     !Number.isInteger(state.maxVisibleLines) || state.maxVisibleLines < 1 ||
-    typeof state.searchQuery !== "string" || typeof state.applyFilter !== "function" || typeof state.getEntryDisplayText !== "function") {
+    typeof state.searchQuery !== "string" || typeof state.applyFilter !== "function" || typeof state.getEntryDisplayText !== "function" ||
+    typeof state.getStatusLabels !== "function") {
     throw new Error("Pins: unsupported Pi TreeList internals; update Pins or use a compatible Pi version.");
   }
   return state;
@@ -53,6 +55,9 @@ export function createTree(items: readonly PinItem[], filter: FilterMode, query:
   const state = list ? nativeState(list) : undefined;
   if (list && state) {
     list.onLabelEdit = undefined;
+    // Only pinned rows carry a label, so Pi's labeled-only filter is the pin filter; its counter tag says so.
+    const statusLabels = state.getStatusLabels.bind(state);
+    state.getStatusLabels = () => statusLabels().replace("[labeled]", "[pinned]");
     if (query) { state.searchQuery = query; state.applyFilter(); }
   }
   return {

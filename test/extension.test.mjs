@@ -93,7 +93,7 @@ test(`shelf opens Session pinned-only; Tab switches Session/All; p in All unpins
  const foreign=stored(answer('x','Saved response','2026-10-20T13:00:00Z'),{id:'foreign',name:'Other'});
  const s=await session({pinned:['a0','a2'],elsewhere:[foreign]});
  assert.equal(s.shelfLabels().length,2,'The shelf lists only messages this session contains');
- await s.shelfClick(2);assert(s.lines()[0].includes('◉ Session'));assert.match(s.screen(),/\(\d\/2\)/);assert(s.screen().includes('[labeled]'));
+ await s.shelfClick(2);assert(s.lines()[0].includes('◉ Session'));assert.match(s.screen(),/\(\d\/2\) \[pinned\]/);
  await s.press('\t');assert(s.lines()[0].includes('◉ All'));await s.search('Saved response');assert(s.screen().includes('Session name: Other'));
  await s.press('p');assert.deepEqual(s.writes,[['a0','a2']]);
  await s.press('\t');assert(s.lines()[0].includes('◉ Session'));assert(!s.screen().includes('Search:'));await s.press('\x1b');
@@ -232,7 +232,7 @@ test('Session lists only user messages, assistant answers and user-run commands;
    assert.match(screen(),/\(\d+\/18\)/);
    for(const text of ['Compaction notes','ordinary extension','Branch summary sentinel','Extension role sentinel','Unpinned tool noise','Previously pinned'])assert.match(search(text),/\(0\/0\)/,text);
    assert.match(search('user command'),/\(1\/1\)/);search('');
-   c.handleInput('\x0c');assert.match(screen(),/\(\d+\/2\) \[labeled\]/);
+   c.handleInput('\x10');assert.match(screen(),/\(\d+\/2\) \[pinned\]/);
    c.handleInput('\t');assert.match(screen(),/\(\d+\/2\)/);
   }finally{c.dispose();}
  }}};
