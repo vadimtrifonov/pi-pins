@@ -91,7 +91,7 @@ test(`a failed pin change shows its error until the next attempt`,async()=>{
  b.key('p');await settle();assert(!b.screen().includes('Lock file'));assert.match(b.lines().find(line=>line.includes('c copy')).trim(),/^p pin/);
  b.c.dispose();
 });
-test(`40×18 geometry, counter/selection remain visible, closing lines survive reading/filter/no-match/resizes`,async()=>{
+test(`40×18 geometry, counter/selection remain visible, the preview hides only for lack of room, across reading/filter/no-match/resizes`,async()=>{
  const b=browser({copy:async()=>{throw new Error('Clipboard unavailable');}});
  for(const [columns,rows] of [[114,65],[75,32],[40,18],[60,24],[40,18]]){
   Object.assign(b.tui.terminal,{columns,rows});for(const mode of ['local','query','reader','all','all-query','none']){
@@ -106,7 +106,9 @@ test(`40×18 geometry, counter/selection remain visible, closing lines survive r
    assert(!b.screen().includes('More room'),`${mode}\n${b.screen()}`);
    assert.match(lines.at(-1),/[─]/);
    if(mode==='reader')assert.equal(lines[0].trim(),'Pin');
-   if(mode!=='none')assert.match(lines.at(-1),/lines \d+–\d+\/\d+/);if(!['reader','none'].includes(mode))assert(b.selected(),mode);
+   if(mode==='reader'||rows>24&&mode!=='none')assert.match(lines.at(-1),/lines \d+–\d+\/\d+/);
+   else if(['local','all'].includes(mode))assert.doesNotMatch(lines.at(-1),/lines/,`${mode}: long lists keep every row`);
+   if(!['reader','none'].includes(mode))assert(b.selected(),mode);
   }
   b.key('\t');b.search('');
  }
@@ -164,14 +166,14 @@ test('All without pins says so',()=>{
  const f=nativeFixture(),b=browser({view:{session:{...f.group,pins:[]},messages:f.messages,all:[]}});
  b.key('\t');assert(b.screen().includes('No pins.'));assert(b.screen().includes('(0/0)'));b.c.dispose();
 });
-test('40×18 All keeps two actual sources plus counter and three answer rows with named UUID attribution; action band disappears only while editing',()=>{
- const f=nativeFixture(),tui={terminal:{columns:40,rows:18},requestRender(){}};
+test('40×30 All keeps the list, counter, named UUID attribution and three answer rows; action band disappears only while editing',()=>{
+ const f=nativeFixture(),tui={terminal:{columns:40,rows:30},requestRender(){}};
  const c=createBrowser({tui,theme,keys,view:f.view,memory:readingMemory(),scope:'all',initial:keyOf('a4','2026-10-21T13:00:00Z'),signal:new AbortController().signal,done(){}});
  c.focused=true;
  const render=()=>c.render(40).map(clean),text=()=>render().join('\n'),key=data=>{c.handleInput(data);render();};
- function verify(){const lines=render();assert.equal(lines.length,16);assert(!text().includes('More room'));
+ function verify(){const lines=render();assert.equal(lines.length,28);assert(!text().includes('More room'));
   const counter=lines.findIndex(line=>/\(\d+\/\d+\)/.test(line));assert(counter>1);assert(lines[counter-1].includes('assistant:'));assert(lines[counter-2].includes('assistant:'));
-  assert(text().includes('Session name: Recovery review'));assert(text().replace(/\s/g,'').includes(f.foreign.id));assert.match(lines.at(-1),/lines 1–[3-9]/);
+  assert(text().includes('Session name: Recovery review'));assert(text().replace(/\s/g,'').includes(f.foreign.id));assert.match(lines.at(-1),/lines 1–([3-9]|\d\d)\//);
  }
  verify();key('/');assert(!text().includes('c copy'));assert(!text().includes('p unpin'));
  for(const char of 'release gate')key(char);key('\x1b');assert(text().includes('p unpin · c copy · i insert'));verify();c.dispose();

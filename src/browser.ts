@@ -116,6 +116,7 @@ export function createBrowser(options: BrowserOptions) {
   }
   function scroll(delta: number, byPage = false) {
     component.render(tui.terminal.columns);
+    if (!page) return;
     const max = Math.max(0, lineCount - page);
     offset = Math.max(0, Math.min(Math.min(offset, max) + delta * (byPage ? page : 1), max));
   }
@@ -164,38 +165,38 @@ export function createBrowser(options: BrowserOptions) {
         ? [line(theme.fg(notice ? "error" : "muted", truncateToWidth(notice || `Copied: ${pinLabel(item!.source)}`, inner, "…")))] : [];
       const before = [...header.map(line), ...hintRows(theme, hints, inner).map(line), ...feedback, rule];
       const caption = item && scope === "all" ? sourceCaption(theme, item.group, inner).map(line) : [];
-      const minimum = reader ? 3 : 2 + (item ? 3 : 0);
-      const preferredMinimum = reader ? 3 : minimum + (item ? 1 : 0); // two rows + the native counter
-      if (caption.length && rows - before.length - caption.length - 1 < preferredMinimum) caption.pop();
-      let available = rows - before.length - caption.length - 1;
-      const divider = !reader && item && available > preferredMinimum ? [rule] : [];
-      available -= divider.length;
-      cramped = inner < 36 || available < minimum;
+      const space = rows - before.length - 1; // rows between the hints and the closing rule
+      if (reader && space - caption.length < 3) caption.pop(); // the caption's blank line
+      cramped = inner < 36 || (reader ? space - caption.length < 3 : space < 2);
       if (cramped) {
         const warning = [line("More room is needed to browse pins."), line("Esc back/close")];
         while (warning.length < rows - 1) warning.push("");
         return [...warning.slice(0, rows - 1), rule];
       }
-      let choices: string[] = [];
+      let choices: string[] = [], divider: string[] = [];
       if (!reader) {
-        // The preview keeps a quarter of the room, but no fewer than 5 lines
-        // unless the list would lose its last row; a short list leaves it more.
-        const preview = item ? Math.max(Math.floor(available / 4), Math.min(5, available - (available >= 6 ? 3 : 2))) : 0;
-        choices = tree.render(width, Math.max(1, available - preview - 1));
+        // The list comes first. The preview, with its caption, keeps a quarter of the space plus its divider,
+        // or more under a short list, and is hidden when it would show fewer than 5 lines of text.
+        const quarter = Math.floor(space / 4);
+        const reserved = item && quarter - caption.length >= 5 ? 1 + quarter : 0;
+        choices = tree.render(width, Math.max(1, space - reserved - 1));
         if (!choices.length) choices = [line(theme.fg("muted", scope === "all" ? "No pins." : "No messages to pin yet.")), line(theme.fg("muted", "(0/0)"))];
+        divider = [rule];
       }
-      page = Math.max(1, available - choices.length);
+      page = space - choices.length - divider.length - caption.length;
+      const preview = !!item && (reader || page >= 5);
+      if (!preview) page = 0;
       if (markdownKey !== item?.key) { markdownKey = item?.key; markdown = item ? new Markdown(item.source.text, 0, 0, getMarkdownTheme()) : undefined; }
       const lines = markdown?.render(inner) ?? []; lineCount = lines.length;
       const displayed = Math.max(0, Math.min(offset, Math.max(0, lineCount - page)));
       const body = lines.slice(displayed, displayed + page);
       while (body.length < page) body.push("");
       let closing = rule;
-      if (lineCount) {
+      if (lineCount && preview) {
         const position = ` lines ${displayed + 1}–${Math.min(lineCount, displayed + page)}/${lineCount} `;
         closing = truncateToWidth(rule, Math.max(0, width - position.length), "") + theme.fg("muted", position);
       }
-      return [...before, ...choices, ...divider, ...caption, ...body.map(line), closing];
+      return [...before, ...choices, ...preview ? [...divider, ...caption, ...body.map(line)] : [], closing];
     },
     handleInput(data: string) {
       if (closed || signal.aborted || busy) return;
