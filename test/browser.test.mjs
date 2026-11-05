@@ -101,7 +101,7 @@ test(`40×18 geometry, counter/selection remain visible, the preview hides only 
    if(mode==='all-query')b.search('migration');
    if(mode==='none')b.search('unfindable');
    const lines=b.lines();
-   assert(lines.length<=rows-2,`${mode} ${columns}x${rows}: ${lines.length}`);
+   assert.equal(lines.length,rows-2,`${mode} ${columns}x${rows}: panel keeps its full height`);
    assert(lines.every(line=>visibleWidth(line)<=columns));
    assert(!b.screen().includes('More room'),`${mode}\n${b.screen()}`);
    assert.match(lines.at(-1),/[─]/);
@@ -151,20 +151,27 @@ test('all shortcut text stays muted with the real Pi theme, including wrapped ro
  }
  b.c.dispose();
 });
-test('an empty pin subset keeps the way back and selected message',()=>{
+test('an empty pin subset keeps full height, the way back and selected message across resizes',()=>{
  const f=nativeFixture(),b=browser({view:{...f.view,session:{...f.group,pins:[]}}});
- const selected=b.memory.selected.get('current');b.key('\x10');assert(b.screen().includes('(0/0) [pinned]'));assert(b.screen().includes('Ctrl+P all'));
- b.key('\x10');assert.equal(b.memory.selected.get('current'),selected);b.c.dispose();
+ const selected=b.memory.selected.get('current');b.key('\x10');
+ for(const [columns,rows] of [[75,32],[40,18],[114,65],[75,32]]){
+  Object.assign(b.tui.terminal,{columns,rows});const lines=b.lines();
+  assert.equal(lines.length,rows-2);assert(lines[0].includes('◉ Session'));assert.match(lines.at(-1),/^─+$/);
+  assert(b.screen().includes('(0/0) [pinned]'));assert(b.screen().includes('Ctrl+P all'));
+  assert.equal(b.selected(),undefined);
+ }
+ b.key('\x10');assert.equal(b.memory.selected.get('current'),selected);assert.equal(b.lines().length,b.tui.terminal.rows-2);b.c.dispose();
 });
 test('empty Session stays open and can reach pins of other sessions',()=>{
  const f=nativeFixture(),b=browser({view:{session:{...f.group,pins:[]},messages:[],all:[f.foreign]}});
- assert(b.screen().includes('No messages'));
+ assert(b.screen().includes('No messages'));assert.equal(b.lines().length,b.tui.terminal.rows-2);
  b.key('\t');assert(b.selected().includes('# Release gate'),'All opens at the newest pin');
  b.c.dispose();
 });
 test('All without pins says so',()=>{
  const f=nativeFixture(),b=browser({view:{session:{...f.group,pins:[]},messages:f.messages,all:[]}});
- b.key('\t');assert(b.screen().includes('No pins.'));assert(b.screen().includes('(0/0)'));b.c.dispose();
+ b.key('\t');assert(b.screen().includes('No pins.'));assert(b.screen().includes('(0/0)'));
+ assert.equal(b.lines().length,b.tui.terminal.rows-2);b.c.dispose();
 });
 test('40×30 All keeps the list, counter, named UUID attribution and three answer rows; action band disappears only while editing',()=>{
  const f=nativeFixture(),tui={terminal:{columns:40,rows:30},requestRender(){}};

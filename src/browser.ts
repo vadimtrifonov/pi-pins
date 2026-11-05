@@ -190,13 +190,15 @@ export function createBrowser(options: BrowserOptions) {
       const lines = markdown?.render(inner) ?? []; lineCount = lines.length;
       const displayed = Math.max(0, Math.min(offset, Math.max(0, lineCount - page)));
       const body = lines.slice(displayed, displayed + page);
-      while (body.length < page) body.push("");
       let closing = rule;
       if (lineCount && preview) {
         const position = ` lines ${displayed + 1}–${Math.min(lineCount, displayed + page)}/${lineCount} `;
         closing = truncateToWidth(rule, Math.max(0, width - position.length), "") + theme.fg("muted", position);
       }
-      return [...before, ...choices, ...preview ? [...divider, ...caption, ...body.map(line)] : [], closing];
+      const frame = [...before, ...choices, ...preview ? [...divider, ...caption, ...body.map(line)] : []];
+      // Keep the overlay full height even when there is no preview to fill the remaining space.
+      while (frame.length < rows - 1) frame.push("");
+      return [...frame, closing];
     },
     handleInput(data: string) {
       if (closed || signal.aborted || busy) return;
